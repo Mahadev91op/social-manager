@@ -1,64 +1,229 @@
-import Image from "next/image";
+"use client";
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { Toaster, toast } from 'react-hot-toast';
+import { AnimatePresence, motion } from 'framer-motion';
+import { FaSearch, FaBars, FaLock } from "react-icons/fa"; // FaLock added here
+
+import Sidebar from "@/components/Sidebar";
+import AddAccountForm from "@/components/AddAccountForm";
+import AccountCard from "@/components/AccountCard";
+import EditModal from "@/components/EditModal";
+import PinLock from "@/components/PinLock";
 
 export default function Home() {
+  // --- STATES ---
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  
+  // Edit States
+  const [editingAccount, setEditingAccount] = useState(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  // Security States
+  const [isLocked, setIsLocked] = useState(true);
+  const [masterPin, setMasterPin] = useState("");
+
+  // --- USE EFFECTS ---
+  useEffect(() => {
+    const savedPin = sessionStorage.getItem("vault_pin");
+    if (savedPin) {
+      setMasterPin(savedPin);
+      setIsLocked(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isLocked && masterPin) {
+      fetchAccounts();
+    }
+  }, [isLocked, masterPin]);
+
+  // --- API FUNCTIONS ---
+  const fetchAccounts = async () => {
+      try {
+        const res = await axios.get("/api/accounts", {
+            headers: { "x-vault-pin": masterPin }
+        });
+        setAccounts(res.data.data);
+      } catch (error) {
+        if (error.response && error.response.status === 401) {
+            toast.error("Wrong PIN! Vault Locked.");
+            handleLock();
+        } else {
+            toast.error("Error loading data");
+        }
+      }
+  };
+
+  const handleUnlock = (pin) => {
+    setMasterPin(pin);
+    sessionStorage.setItem("vault_pin", pin);
+    setIsLocked(false);
+  };
+
+  const handleLock = () => {
+    sessionStorage.removeItem("vault_pin");
+    setMasterPin("");
+    setAccounts([]);
+    setIsLocked(true);
+  };
+
+  const handleAdd = async (formData) => {
+    setLoading(true);
+    try {
+        const cleanPlatform = formData.platform.trim().charAt(0).toUpperCase() + formData.platform.trim().slice(1).toLowerCase();
+        await axios.post("/api/accounts", 
+            { ...formData, platform: cleanPlatform }, 
+            { headers: { "x-vault-pin": masterPin } }
+        );
+        toast.success("Account Added!");
+        fetchAccounts();
+        setIsFormOpen(false);
+    } catch (e) { toast.error("Failed / Unauthorized"); }
+    setLoading(false);
+  };
+
+  const handleDelete = async (id) => {
+      if (!confirm("Delete?")) return;
+      const oldAccounts = [...accounts];
+      setAccounts(accounts.filter(acc => acc._id !== id));
+      
+      try {
+        await axios.delete(`/api/accounts?id=${id}`, {
+            headers: { "x-vault-pin": masterPin }
+        });
+        toast.success("Deleted!");
+      } catch (error) {
+        setAccounts(oldAccounts);
+        toast.error("Failed to delete");
+      }
+  };
+
+  const handleUpdate = async (id, updatedData) => {
+    try {
+      const updatedAccounts = accounts.map(acc => acc._id === id ? { ...acc, ...updatedData } : acc);
+      setAccounts(updatedAccounts);
+      
+      await axios.put("/api/accounts", 
+        { id, ...updatedData },
+        { headers: { "x-vault-pin": masterPin } }
+      );
+      toast.success("Updated!");
+      fetchAccounts();
+    } catch (error) { toast.error("Failed"); fetchAccounts(); }
+  };
+
+  // --- YE FUNCTION MISSING THA ---
+  const openEditModal = (account) => {
+    setEditingAccount(account);
+    setIsEditModalOpen(true);
+  };
+
+  // --- FILTER LOGIC ---
+  const filteredAccounts = accounts.filter(acc => {
+    const matchesCategory = selectedCategory === "All" ? true : acc.platform.toLowerCase() === selectedCategory.toLowerCase();
+    const matchesSearch = acc.platform.toLowerCase().includes(searchTerm.toLowerCase()) || acc.username.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  // --- RENDER ---
+  if (isLocked) {
+    return <PinLock onUnlock={handleUnlock} />;
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.js file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-[#050505] text-white font-sans flex overflow-hidden">
+      <Toaster position="bottom-right" toastOptions={{ style: { background: '#333', color: '#fff' } }} />
+      
+      <AnimatePresence>
+        {isEditModalOpen && (
+          <EditModal 
+            account={editingAccount} 
+            isOpen={isEditModalOpen} 
+            onClose={() => setIsEditModalOpen(false)}
+            onUpdate={handleUpdate}
+          />
+        )}
+      </AnimatePresence>
+
+      <Sidebar 
+        accounts={accounts} 
+        selectedCategory={selectedCategory} 
+        onSelectCategory={setSelectedCategory}
+        onOpenModal={() => setIsFormOpen(true)}
+        isOpen={isMobileSidebarOpen}
+        onClose={() => setIsMobileSidebarOpen(false)}
+      />
+
+      <main className="flex-1 md:ml-64 p-4 md:p-8 h-screen overflow-y-auto relative w-full">
+        <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-6 md:mb-8 sticky top-0 bg-[#050505]/90 backdrop-blur-md py-4 z-30 border-b border-gray-800 md:border-none gap-4">
+            <div className="flex items-center gap-4 md:block">
+                <button onClick={() => setIsMobileSidebarOpen(true)} className="md:hidden p-2 text-gray-300 hover:bg-gray-800 rounded-lg">
+                    <FaBars size={24} />
+                </button>
+                <div>
+                    <h2 className="text-2xl md:text-3xl font-bold truncate max-w-[200px] md:max-w-none">{selectedCategory}</h2>
+                    <p className="text-gray-500 text-xs md:text-sm hidden md:block">Manage your passwords</p>
+                </div>
+            </div>
+
+            <div className="flex gap-3 w-full md:w-auto">
+                <div className="relative w-full md:w-auto">
+                    <FaSearch className="absolute left-3 top-3.5 text-gray-500"/>
+                    <input 
+                        type="text" 
+                        placeholder="Search..." 
+                        className="w-full md:w-64 bg-gray-900 border border-gray-800 rounded-xl pl-10 pr-4 py-3 focus:border-blue-500 focus:outline-none transition"
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                <button 
+                    onClick={handleLock}
+                    className="bg-gray-800 hover:bg-red-500/20 hover:text-red-500 text-gray-400 p-3 rounded-xl transition"
+                    title="Lock Vault"
+                >
+                    <FaLock />
+                </button>
+            </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+
+        <AnimatePresence>
+            {isFormOpen && (
+                <div className="mb-8">
+                    <AddAccountForm onAdd={handleAdd} loading={loading} />
+                </div>
+            )}
+        </AnimatePresence>
+
+        <motion.div layout className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 pb-20">
+          <AnimatePresence>
+            {filteredAccounts.map((acc) => (
+              <AccountCard 
+                key={acc._id} 
+                account={acc} 
+                onDelete={handleDelete} 
+                onEdit={openEditModal} 
+              />
+            ))}
+          </AnimatePresence>
+
+          {filteredAccounts.length === 0 && (
+            <div className="col-span-full py-10 md:py-20 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-gray-800 rounded-2xl mx-2">
+              <p className="text-center">No accounts found in {selectedCategory}.</p>
+              <button 
+                onClick={() => setIsFormOpen(true)}
+                className="mt-4 text-blue-500 hover:underline"
+              >
+                Add Account
+              </button>
+            </div>
+          )}
+        </motion.div>
       </main>
     </div>
   );

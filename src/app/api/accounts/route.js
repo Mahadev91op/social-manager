@@ -86,6 +86,9 @@ export async function PUT(request) {
       );
       return NextResponse.json({ success: true, data: updatedAccount });
     } catch (error) {
-      return NextResponse.json({ success: false }, { status: 400 });
-    }
+    // Ye line add karo taki terminal me error dikhe
+    console.error("SERVER ERROR AA GAYA BHAI:", error); 
+    
+    return NextResponse.json({ success: false, error: "Failed" }, { status: 500 });
+  }
   }
